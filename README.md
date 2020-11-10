@@ -1,2 +1,2 @@
 # HeatMortality
-Downloads and analyzes heat related mortality in the United States
+Downloads and analyzes heat related mortality in Cook County, IL
