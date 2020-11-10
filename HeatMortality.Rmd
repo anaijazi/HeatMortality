@@ -1,0 +1,268 @@
+---
+title: "Heat Related Mortality in Cook County, IL"
+author: "Arfa Aijazi"
+date: "11/10/2020"
+output: html_document
+---
+
+## Data Source
+### Epidemiological Data
+This data comes from the Cook County Medical Examiner Case Archive and contains information about all deaths that occurred in Cook County under the Medical Examiner's jurisdiction. The data available on the county's open data platform spans from August 2014-Present. 
+
+I spoke with the Medical Examiner's Office Librarian regarding accessing older regards. Records older than 2014 are not digitized i.e. paper records. In order to access them, I can write a letter to the Chief Medical Examiner describing who I am, the research project, and the information needed. 
+
+Data from 1995 Chicago Heat Wave is documented in a graphic in this article from Chicago Magazine (https://www.chicagomag.com/Chicago-Magazine/July-2015/1995-Chicago-heat-wave/). I have contacted the author and Chicago Magazine regarding the data behind the graphic, but no response. As a last resort, I could manually enter the date, address, and demographic information into a table to join with other data sets. 
+
+Each record in the microdata represents an individual death and contains the date and time of death, incident address, primary and secondary causes of death, and demographic information about the deceased such as age, gender, and race. Most relevant for this study, the Medical Examiner's office classifies whether the death was heat or cold related.
+
+A significant limitation of this data set is that heat and subsequently cold-related deaths are generally under-reported. Coroner's often only mark a death as heat-related when no other cause of death is suspected, but that can miss cases in which heat or cold contributed to death from another cause. Another limitation is that not all deaths in Cook County are reported to or fall under the jurisdiction of the Medical Examiner's office.
+
+## Data Import
+Download libraries
+```{r message=TRUE, warning=FALSE}
+library("tidyverse")
+library("lubridate")
+library("tidygeocoder")
+library("ggmap")
+```
+
+Download Cook County Medical Examiner Case Archive Data
+```{r message=FALSE, warning=FALSE}
+medExaminerData <- read_csv("https://datacatalog.cookcountyil.gov/api/views/cjeq-bs86/rows.csv?accessType=DOWNLOAD")
+
+# Replace space character in column names with .
+names(medExaminerData) <- str_replace_all(names(medExaminerData), " ", ".") 
+
+```
+
+Clean Cook County Medical Examiner Case Archive Data by filtering for heat related deaths, removing suicides, and reclassifying race
+```{r message=FALSE, warning=FALSE}
+medExaminerData_clean <- medExaminerData %>%
+  mutate(Date.of.Incident = mdy_hms(Date.of.Incident)) %>%
+  mutate(Date.of.Death = mdy_hms(Date.of.Death)) %>%
+  filter(Heat.Related == TRUE) %>%
+  filter(Manner.of.Death != "SUICIDE") %>%
+  mutate(Race2 = case_when(Latino == TRUE ~ "Latino",
+                           Latino == FALSE ~ Race))
+```
+
+Download Cook County Assessor's Residential Property Characteristics
+```{r message=FALSE, warning=FALSE}
+resPropChar <- read_csv("https://datacatalog.cookcountyil.gov/api/views/bcnq-qi2z/rows.csv?accessType=DOWNLOAD")
+
+# Replace space character in column names with .
+names(resPropChar) <- str_replace_all(names(resPropChar), " ", ".") 
+
+```
+
+Join medical examiner data with property characteristics by PIN. Manually identified property PIN for each filtered observation in the medical examiner data from the Cook County Assessor's office website in order to join both data sets. Joining by address was unsuccessful due to variation in case, abbreviation, and spelling. Joining by longitude and latitude was unsuccessful due to variation in geocoding.  
+```{r message=FALSE, warning=FALSE}
+heatPropertyKey <- read_csv("heatProperty.csv")
+
+heatPropertyKey <- heatPropertyKey %>%
+  mutate(PIN = str_replace_all(PIN, "-", ""))
+
+medExaminerData_clean <- medExaminerData_clean %>%
+  inner_join(heatPropertyKey, by = "Incident.Address") %>%
+  inner_join(resPropChar, by = "PIN")
+```
+## Preliminary Analysis
+### Date
+Of the 15 cases, they are roughly evenly distributed between 2015-2020. The cases spanned April-August, which represents spring and summer seasons in Chicago. Over half of the cases ocurred in July.
+```{r echo=FALSE, message=TRUE, warning=TRUE}
+medExaminerData_clean <- medExaminerData_clean %>%
+  mutate(Year.of.Incident = year(Date.of.Incident)) 
+
+medExaminerData_clean %>%
+  group_by(Year.of.Incident) %>%
+  tally()
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x = year(Date.of.Incident))) + geom_histogram()
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean <- medExaminerData_clean %>%
+  mutate(Month.of.Incident = month(Date.of.Incident))
+
+medExaminerData_clean %>%
+  group_by(Month.of.Incident) %>%
+  tally()
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x = Month.of.Incident)) + geom_bar()
+```
+
+### Demographics
+Of the 15 cases, they are skewed towards an elderly population. Over the half are over the age of 65. 80% of the cases are female and nearly half are black.  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(Age.x) %>%
+  tally()
+
+```
+
+Histogram bin width = 10 years
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x=Age.x)) + geom_histogram(binwidth = 10)
+
+```
+Sorted in medically relevant age groups (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3825015/)
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean <- medExaminerData_clean %>%
+  mutate(Age.Categorical = cut(Age.x, breaks = c(-Inf, 17, 43, 64, 79, Inf), labels = c("0-17", "18-43", "44-64", "65-79", "80+"))) 
+
+medExaminerData_clean %>%
+  group_by(Age.Categorical) %>%
+  tally()
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x=Age.Categorical)) + geom_bar()
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(Gender) %>%
+  tally()
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x = Gender)) + geom_bar()
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(Race2) %>%
+  tally() 
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x=Race2)) + geom_bar()
+```
+
+### Cause
+The Medical Examiner's data does not use a disease classification system to label cause of death. After grouping related labels, a little over the half of the deaths were due to a heart condition (cardiovascular disease) and most of the remaining deaths were due to hyperthermia/heat exposure. There is one death labeled as due to ethanol and amphetamine toxicity (alcohol poisening). It may be reasonable to exclude this case from our analysis. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(Primary.Cause) %>%
+  tally()
+```
+
+Group hyperthermia, heat stroke, and heat exposure -> _Hyperthermia
+Group various labels for cardiovascular disease -> Cardiovascular Disease
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean <- medExaminerData_clean %>%
+  mutate(Primary.Cause2 = ifelse(grepl("hyperthermia", Primary.Cause, ignore.case = TRUE), "Hyperthermia", ifelse(grepl("heat", Primary.Cause, ignore.case= TRUE), "Hyperthermia", ifelse(grepl("Cardiovascular Disease", Primary.Cause, ignore.case = TRUE), "Cardiovascular Disease", Primary.Cause)))) 
+
+medExaminerData_clean %>%
+  group_by(Primary.Cause2) %>%
+  tally()
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x=Primary.Cause2)) + geom_bar()
+```
+
+### Property Class  
+Designations by Cook County Assessor: https://prodassets.cookcountyassessor.com/s3fs-public/form_documents/classcode.pdf
+
+The top property types represented are apartment buildings, one story residences 1000-1800 sf, one story residences < 999 sf, and mixed use commercial/residential  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+medExaminerData_clean <- medExaminerData_clean %>%
+  mutate(Property.Class2 = case_when(Property.Class == 200 ~ "Residential Land",
+                                     Property.Class == 202 ~ "One-story Residence, any age, <999 sf",
+                                     Property.Class == 203 ~ "One-story Residence, any age, 1000-1800 sf",
+                                     Property.Class == 204 ~ "One-story Residence, any age, > 1800 sf", 
+                                     Property.Class == 205 ~ "Two-or-more-story Residence, > 62 years, < 2200 sf",
+                                     Property.Class == 206 ~ "Two-or-more-story Residence, > 62 years, 2201-4999 sf",
+                                     Property.Class == 207 ~ "Two-or-more-story Residence, < 62 years, < 2000 sf", 
+                                     Property.Class == 208 ~ "Two-or-more-story Residence, < 62 years, 3801-4999 sf", 
+                                     Property.Class == 209 ~ "Two-or-more-story Residence, any age, > 5000 sf", 
+                                     Property.Class == 210 ~ "Old style row house (town home), > 62 years",
+                                     Property.Class == 211 ~ "Apartment building with 2-6 units, any age",
+                                     Property.Class == 212 ~ "Mixed-use commercial/residential building with apartment and commercial area totalling < 6 units, any age, < 20,000 sf", 
+                                     Property.Class == 234 ~ "Split level residence with a lower level below grade (ground level), any age, any size", 
+                                     Property.Class == 278 ~ "Two-or-more-story Residence, < 62 years, 2001-3800 sf", 
+                                     Property.Class == 295 ~ "Individually owned townhome or row home, < 62 years", 
+                                     Property.Class == 299 ~ "Residential Condominium"))
+
+medExaminerData_clean %>%
+  group_by(`Property.Class`) %>%
+  tally()
+
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x=Property.Class)) + geom_bar()
+```
+
+### Type of Residence  
+This parameter describes the number of stories
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(`Type.of.Residence`) %>%
+  tally()
+```
+
+### Apartments  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(`Apartments`) %>%
+  tally()
+```
+
+### Central-Air
+Note: the Assessor's Office only considers central-air, buildings may contain window air conditioner. Over 75% of the cases were in residences without central air conditioning.  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean <- medExaminerData_clean %>%
+  mutate(Central.Air2 = case_when(Central.Air == 1 ~ "Central Air",
+                                  Central.Air == 0 ~ "No Central Air"))
+
+medExaminerData_clean %>%
+  group_by(`Central.Air2`) %>%
+  tally()
+
+```
+### Building Size
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(`Building.Square.Feet`) %>%
+  tally()
+
+```
+Histogram bin-width = 250 sf  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x=Building.Square.Feet)) + geom_histogram(binwidth = 250)
+```
+### Building Age
+Note: This field is a combination of original age and effective age where original age refers to the oldest component of the building and effective age is a relative judgment due to renovations or other improvements. for instance, if a property is completely demolished and built up again, the age resets to 1. But if portions of the original structure are kept, it may be more complicated to determine the age.
+
+The median home age is 89 years and the cases are roughly normally distributed. 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean %>%
+  group_by(`Age.y`) %>%
+  tally()
+
+```
+```{r}
+median(medExaminerData_clean$Age.y)
+```
+Histogram bin-width = 10 years  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(medExaminerData_clean, aes(x=Age.y)) + geom_histogram(binwidth = 10)
+```
+### Wall Material
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+medExaminerData_clean <- medExaminerData_clean %>%
+  mutate(Wall.Material2 = case_when(Wall.Material == 1 ~ "Wood",
+                                    Wall.Material == 2 ~ "Masonry",
+                                    Wall.Material == 3 ~ "Wood & Masonry",
+                                    Wall.Material == 4 ~ "Stucco"))
+medExaminerData_clean %>%
+  group_by(`Wall.Material2`) %>%
+  tally()
+```
+
