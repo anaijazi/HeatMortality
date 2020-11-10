@@ -2,7 +2,7 @@
 title: "Heat Related Mortality in Cook County, IL"
 author: "Arfa Aijazi"
 date: "11/10/2020"
-output: html_document
+output: github_document
 ---
 
 ## Data Source
