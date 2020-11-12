@@ -79,7 +79,6 @@ medExaminerData_clean %>%
 ```
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 ggplot(medExaminerData_clean, aes(x = year(Date.of.Incident))) + geom_histogram()
-
 ```
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
